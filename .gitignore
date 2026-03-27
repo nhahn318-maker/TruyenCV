@@ -1,0 +1,30 @@
+# Build folders
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Temporary files
+*.log
+*.tmp
+*.bak
+
+# ASP.NET specific
+project.lock.json
+project.fragment.lock.json
+
+# Frontend (nếu dùng node/npm)
+node_modules/
+
+# Git metadata
+.DS_Store
+Thumbs.db
+
+# Copilot & cache
+CopilotIndices/
+*.db
+*.db-wal
+*.db-shm
