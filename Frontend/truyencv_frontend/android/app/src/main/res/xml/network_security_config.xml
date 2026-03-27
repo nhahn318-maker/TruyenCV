@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Cho phép HTTP (cleartext traffic) cho development -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+    
+    <!-- Cấu hình riêng cho các domain cụ thể -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Localhost cho emulator -->
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        
+        <!-- IP máy tính trên mạng WiFi -->
+        <domain includeSubdomains="true">192.168.1.17</domain>
+        <domain includeSubdomains="true">192.168.1.1</domain>
+        
+        <!-- Các IP khác có thể dùng -->
+        <domain includeSubdomains="true">192.168.137.1</domain>
+        <domain includeSubdomains="true">192.168.249.1</domain>
+        <domain includeSubdomains="true">192.168.2.1</domain>
+    </domain-config>
+</network-security-config>
+
