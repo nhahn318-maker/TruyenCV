@@ -1,0 +1,6 @@
+@TruyenCV_HostAddress = http://localhost:5057
+
+GET {{TruyenCV_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
