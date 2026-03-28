@@ -1,11 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/chapter.dart';
 import '../services/chapter_service.dart';
-import '../services/reading_history_service.dart';
-import '../services/auth_service.dart';
-import '../services/comment_service.dart';
-import '../models/reading_history.dart';
-import '../models/comment.dart';
+import '../services/chapter_tts_service.dart';
+import '../services/reading_settings_service.dart';
 import 'chapters_list_screen.dart';
 
 class ChapterReaderScreen extends StatefulWidget {
@@ -26,29 +24,137 @@ class ChapterReaderScreen extends StatefulWidget {
 
 class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
   final ChapterService _chapterService = ChapterService();
-  final ReadingHistoryService _historyService = ReadingHistoryService();
-  final CommentService _commentService = CommentService();
-  final TextEditingController _commentController = TextEditingController();
+  final ReadingSettingsService _readingSettings = ReadingSettingsService();
+  final ChapterTtsService _ttsService = ChapterTtsService();
   Chapter? _chapter;
   bool _isLoading = true;
   String? _errorMessage;
-  List<Comment> _comments = [];
-  bool _isLoadingComments = false;
-  int _commentPage = 1;
-  final int _commentPageSize = 10;
-  int _totalComments = 0;
+  double _ttsRate = 1.0;
 
   @override
   void initState() {
     super.initState();
-    // Set token từ AuthService singleton
-    final authService = AuthService();
-    if (authService.token != null) {
-      _historyService.setToken(authService.token);
-      _commentService.setToken(authService.token);
-    }
+    _ttsService.onStateChanged = _onTtsStateChanged;
+    _initializeSettings();
     _loadChapter();
-    _loadComments();
+  }
+
+  void _onTtsStateChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _initializeSettings() async {
+    await _readingSettings.initialize();
+    setState(() {
+      _ttsRate = _readingSettings.ttsRate;
+    });
+  }
+
+  void _showTtsRateDialog() {
+    double temp = _ttsRate;
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Tốc độ đọc (nghe truyện)'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${(temp * 100).round()}%',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Nhấn giữ nút tai nghe để mở lại',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 16),
+                Slider(
+                  value: temp,
+                  min: _readingSettings.minTtsRate,
+                  max: _readingSettings.maxTtsRate,
+                  divisions: 10,
+                  label: '${(temp * 100).round()}%',
+                  onChanged: (value) {
+                    setDialogState(() {
+                      temp = value;
+                    });
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Hủy'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await _readingSettings.setTtsRate(temp);
+                  if (mounted) {
+                    setState(() {
+                      _ttsRate = _readingSettings.ttsRate;
+                    });
+                  }
+                  if (_ttsService.isSpeaking) {
+                    await _ttsService.setSpeechRate(_ttsRate);
+                  }
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text('Áp dụng'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _toggleChapterTts() async {
+    if (_chapter == null) return;
+
+    if (_ttsService.isSpeaking) {
+      await _ttsService.stop();
+      return;
+    }
+
+    final plain = ChapterTtsService.stripHtmlForSpeech(_chapter!.content);
+    if (plain.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Chương không có nội dung để đọc'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    final ttsResult = await _ttsService.speakChapter(
+      title: _chapter!.title,
+      content: _chapter!.content,
+      speechRate: _ttsRate,
+    );
+    if (mounted && ttsResult.missingVietnameseVoice) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Không thấy giọng đọc tiếng Việt trên thiết bị. '
+            'Cài giọng Việt (Android: Cài đặt → Đọc văn bản; '
+            'Windows: Cài đặt → Giờ và ngôn ngữ → Giọng nói; '
+            'Chrome: kiểm tra giọng Google tiếng Việt trong chrome://settings/languages).',
+          ),
+          duration: const Duration(seconds: 8),
+          backgroundColor: Colors.orange.shade800,
+        ),
+      );
+    }
   }
 
   Future<void> _loadChapter() async {
@@ -64,32 +170,10 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
       if (response.status && response.data != null) {
         _chapter = response.data!;
         _errorMessage = null;
-        // Tạo hoặc cập nhật lịch sử đọc sau khi load chapter thành công
-        _updateReadingHistory();
       } else {
         _errorMessage = response.message;
       }
     });
-  }
-
-  Future<void> _updateReadingHistory() async {
-    // Chỉ tạo/cập nhật lịch sử đọc nếu user đã đăng nhập
-    final authService = AuthService();
-    if (authService.token == null) return;
-
-    try {
-      // Thử tạo lịch sử đọc mới (nếu đã có sẽ được xử lý ở backend)
-      await _historyService.createReadingHistory(
-        ReadingHistoryCreateDTO(
-          storyId: widget.storyId,
-          lastReadChapterId: widget.chapterId,
-        ),
-      );
-      // Nếu tạo thành công hoặc đã tồn tại, không cần làm gì thêm
-      // Backend sẽ tự động tạo mới hoặc cập nhật nếu đã có
-    } catch (e) {
-      // Lỗi không quan trọng, bỏ qua
-    }
   }
 
   @override
@@ -104,6 +188,11 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
         backgroundColor: Colors.purple,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.record_voice_over_outlined),
+            onPressed: _showTtsRateDialog,
+            tooltip: 'Tốc độ đọc khi nghe truyện',
+          ),
           IconButton(
             icon: const Icon(Icons.list),
             onPressed: () {
@@ -206,192 +295,37 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 32),
-                    // Comments Section
-                    _buildCommentsSection(),
                   ],
                 ),
               ),
-    );
-  }
-
-  Future<void> _loadComments({bool refresh = false}) async {
-    if (refresh) {
-      _commentPage = 1;
-      _comments = [];
-    }
-
-    setState(() {
-      _isLoadingComments = true;
-    });
-
-    final response = await _commentService.getCommentsByChapter(
-      widget.chapterId,
-      page: _commentPage,
-      pageSize: _commentPageSize,
-    );
-
-    if (mounted) {
-      setState(() {
-        _isLoadingComments = false;
-        if (response.status && response.data != null) {
-          final data = response.data!;
-          final commentsList = data['comments'] as List<dynamic>? ?? [];
-          _totalComments = data['total'] as int? ?? 0;
-
-          if (refresh) {
-            _comments =
-                commentsList
-                    .map(
-                      (item) => Comment.fromJson(item as Map<String, dynamic>),
-                    )
-                    .toList();
-          } else {
-            _comments.addAll(
-              commentsList
-                  .map((item) => Comment.fromJson(item as Map<String, dynamic>))
-                  .toList(),
-            );
-          }
-        }
-      });
-    }
-  }
-
-  Future<void> _submitComment() async {
-    if (_commentController.text.trim().isEmpty) return;
-
-    final authService = AuthService();
-    if (authService.token == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Vui lòng đăng nhập để bình luận'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    final response = await _commentService.createCommentForChapter(
-      widget.chapterId,
-      CommentCreateDTO(content: _commentController.text.trim()),
-    );
-
-    if (mounted) {
-      if (response.status) {
-        _commentController.clear();
-        _loadComments(refresh: true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Đăng bình luận thành công'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.message),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Widget _buildCommentsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Bình luận',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            if (_totalComments > 0)
-              Text(
-                '(${_totalComments})',
-                style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-              ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _commentController,
-          decoration: InputDecoration(
-            hintText: 'Viết bình luận...',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.send),
-              onPressed: _submitComment,
-            ),
-          ),
-          maxLines: 3,
-        ),
-        const SizedBox(height: 16),
-        if (_isLoadingComments && _comments.isEmpty)
-          const Center(child: CircularProgressIndicator())
-        else if (_comments.isEmpty)
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(32.0),
-              child: Text(
-                'Chưa có bình luận nào',
-                style: TextStyle(color: Colors.grey),
-              ),
-            ),
-          )
-        else
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _comments.length,
-            itemBuilder: (context, index) {
-              final comment = _comments[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  title: Text(
-                    comment.userName ?? 'Người dùng',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+      floatingActionButton:
+          _chapter != null && !_isLoading && _errorMessage == null
+              ? GestureDetector(
+                  onLongPress: _showTtsRateDialog,
+                  child: FloatingActionButton(
+                    heroTag: 'tts',
+                    mini: true,
+                    backgroundColor: _ttsService.isSpeaking
+                        ? Colors.deepOrange
+                        : Colors.teal,
+                    onPressed: () => unawaited(_toggleChapterTts()),
+                    tooltip: _ttsService.isSpeaking
+                        ? 'Dừng đọc'
+                        : 'Nghe truyện (giữ: tốc độ)',
+                    child: Icon(
+                      _ttsService.isSpeaking ? Icons.stop : Icons.headphones,
+                      color: Colors.white,
+                    ),
                   ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 4),
-                      Text(comment.content),
-                      const SizedBox(height: 4),
-                      Text(
-                        _formatDate(comment.createdAt),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        if (_comments.length < _totalComments)
-          Center(
-            child: TextButton(
-              onPressed: () {
-                _commentPage++;
-                _loadComments();
-              },
-              child: const Text('Xem thêm bình luận'),
-            ),
-          ),
-      ],
+                )
+              : null,
     );
   }
 
   @override
   void dispose() {
-    _commentController.dispose();
+    _ttsService.onStateChanged = null;
+    unawaited(_ttsService.stop());
     super.dispose();
   }
 

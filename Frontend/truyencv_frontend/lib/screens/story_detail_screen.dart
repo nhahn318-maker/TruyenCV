@@ -5,10 +5,8 @@ import '../services/author_service.dart';
 import '../services/bookmark_service.dart';
 import '../services/auth_service.dart';
 import '../services/rating_service.dart';
-import '../services/comment_service.dart';
 import '../models/bookmark.dart';
 import '../models/rating.dart';
-import '../models/comment.dart';
 import 'home_screen.dart';
 import 'chapters_list_screen.dart';
 
@@ -26,9 +24,7 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
   final AuthorService _authorService = AuthorService();
   final BookmarkService _bookmarkService = BookmarkService();
   final RatingService _ratingService = RatingService();
-  final CommentService _commentService = CommentService();
   final TextEditingController _searchController = TextEditingController();
-  final TextEditingController _commentController = TextEditingController();
   Story? _story;
   String? _authorName;
   bool _isLoading = true;
@@ -36,12 +32,7 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
   bool _isBookmarked = false;
   bool _isBookmarking = false;
   RatingSummary? _ratingSummary;
-  List<Comment> _comments = [];
-  bool _isLoadingComments = false;
   bool _isLoadingRating = false;
-  int _commentPage = 1;
-  final int _commentPageSize = 10;
-  int _totalComments = 0;
 
   @override
   void initState() {
@@ -51,7 +42,6 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
     if (authService.token != null) {
       _bookmarkService.setToken(authService.token);
       _ratingService.setToken(authService.token);
-      _commentService.setToken(authService.token);
     }
     _loadStory();
   }
@@ -108,95 +98,9 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
     }
   }
 
-  Future<void> _loadComments({bool refresh = false}) async {
-    if (refresh) {
-      _commentPage = 1;
-      _comments = [];
-    }
-
-    setState(() {
-      _isLoadingComments = true;
-    });
-
-    final response = await _commentService.getCommentsByStory(
-      widget.storyId,
-      page: _commentPage,
-      pageSize: _commentPageSize,
-    );
-
-    if (mounted) {
-      setState(() {
-        _isLoadingComments = false;
-        if (response.status && response.data != null) {
-          final data = response.data!;
-          final commentsList = data['comments'] as List<dynamic>? ?? [];
-          _totalComments = data['total'] as int? ?? 0;
-
-          if (refresh) {
-            _comments =
-                commentsList
-                    .map(
-                      (item) => Comment.fromJson(item as Map<String, dynamic>),
-                    )
-                    .toList();
-          } else {
-            _comments.addAll(
-              commentsList
-                  .map((item) => Comment.fromJson(item as Map<String, dynamic>))
-                  .toList(),
-            );
-          }
-        }
-      });
-    }
-  }
-
-  Future<void> _submitComment() async {
-    if (_commentController.text.trim().isEmpty) return;
-
-    final authService = AuthService();
-    if (authService.token == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Vui lòng đăng nhập để bình luận'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    final response = await _commentService.createComment(
-      CommentCreateDTO(
-        storyId: widget.storyId,
-        content: _commentController.text.trim(),
-      ),
-    );
-
-    if (mounted) {
-      if (response.status) {
-        _commentController.clear();
-        _loadComments(refresh: true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Đăng bình luận thành công'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.message),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
   @override
   void dispose() {
     _searchController.dispose();
-    _commentController.dispose();
     super.dispose();
   }
 
@@ -229,7 +133,6 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
       _loadAuthorName(story.authorId);
       _checkBookmarkStatus();
       _loadRatingSummary();
-      _loadComments();
     } else {
       setState(() {
         _isLoading = false;
@@ -597,9 +500,6 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
                           const SizedBox(height: 24),
                           // Rating Section
                           _buildRatingSection(),
-                          const SizedBox(height: 24),
-                          // Comments Section
-                          _buildCommentsSection(),
                         ],
                       ),
                     ),
@@ -669,99 +569,6 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
           )
         else
           const Text('Chưa có đánh giá', style: TextStyle(color: Colors.grey)),
-      ],
-    );
-  }
-
-  Widget _buildCommentsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Bình luận',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            if (_totalComments > 0)
-              Text(
-                '(${_totalComments})',
-                style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-              ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        // Comment input
-        TextField(
-          controller: _commentController,
-          decoration: InputDecoration(
-            hintText: 'Viết bình luận...',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.send),
-              onPressed: _submitComment,
-            ),
-          ),
-          maxLines: 3,
-        ),
-        const SizedBox(height: 16),
-        // Comments list
-        if (_isLoadingComments && _comments.isEmpty)
-          const Center(child: CircularProgressIndicator())
-        else if (_comments.isEmpty)
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(32.0),
-              child: Text(
-                'Chưa có bình luận nào',
-                style: TextStyle(color: Colors.grey),
-              ),
-            ),
-          )
-        else
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _comments.length,
-            itemBuilder: (context, index) {
-              final comment = _comments[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  title: Text(
-                    comment.userName ?? 'Người dùng',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 4),
-                      Text(comment.content),
-                      const SizedBox(height: 4),
-                      Text(
-                        _formatDate(comment.createdAt),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        if (_comments.length < _totalComments)
-          Center(
-            child: TextButton(
-              onPressed: () {
-                _commentPage++;
-                _loadComments();
-              },
-              child: const Text('Xem thêm bình luận'),
-            ),
-          ),
       ],
     );
   }

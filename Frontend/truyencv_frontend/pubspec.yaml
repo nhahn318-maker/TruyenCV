@@ -41,6 +41,15 @@ dependencies:
   # State management
   provider: ^6.1.1
 
+  # Local storage for settings (tốc độ TTS)
+  shared_preferences: ^2.2.2
+
+  # Text-to-speech (đọc truyện)
+  flutter_tts: ^4.2.3
+
+  # Web Speech API (ép tiếng Việt trên trình duyệt)
+  web: ^1.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
