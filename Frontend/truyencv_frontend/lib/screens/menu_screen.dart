@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import 'login_screen.dart';
+import 'reading_history_screen.dart';
+import 'bookmark_screen.dart';
 import 'main_screen.dart';
 
 class MenuScreen extends StatefulWidget {
@@ -86,7 +88,12 @@ class _MenuScreenState extends State<MenuScreen> {
               iconColor: Colors.blue,
               title: 'Truyện đã xem',
               onTap: () {
-                _showComingSoonSnackBar();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ReadingHistoryScreen(),
+                  ),
+                );
               },
             ),
             _buildMenuItem(
@@ -94,7 +101,12 @@ class _MenuScreenState extends State<MenuScreen> {
               iconColor: Colors.red,
               title: 'Truyện đã thích',
               onTap: () {
-                _showComingSoonSnackBar();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const BookmarkScreen(),
+                  ),
+                );
               },
             ),
             _buildMenuItem(
@@ -110,7 +122,12 @@ class _MenuScreenState extends State<MenuScreen> {
               iconColor: Colors.orange,
               title: 'Truyện đã theo dõi',
               onTap: () {
-                _showComingSoonSnackBar();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const BookmarkScreen(),
+                  ),
+                );
               },
             ),
             _buildMenuItem(
