@@ -19,6 +19,7 @@ class _MainScreenState extends State<MainScreen> {
     BookmarkScreen(key: UniqueKey()),
     ReadingHistoryScreen(key: UniqueKey()),
     MenuScreen(key: UniqueKey()),
+    Container(), // Placeholder cho screen khác
   ];
 
   @override
@@ -40,6 +41,7 @@ class _MainScreenState extends State<MainScreen> {
           BottomNavigationBarItem(icon: Icon(Icons.bookmark), label: 'Đã lưu'),
           BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Lịch sử'),
           BottomNavigationBarItem(icon: Icon(Icons.more_horiz), label: 'Menu'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Tài khoản'),
         ],
       ),
     );
