@@ -13,6 +13,7 @@ class _MainScreenState extends State<MainScreen> {
   // Tạo UniqueKey cho mỗi screen con để đảm bảo chúng được tạo mới hoàn toàn
   late final List<Widget> _screens = [
     MenuScreen(key: UniqueKey()),
+    Container(), // Placeholder cho screen khác
   ];
 
   @override
@@ -31,6 +32,7 @@ class _MainScreenState extends State<MainScreen> {
         },
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.more_horiz), label: 'Menu'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Tài khoản'),
         ],
       ),
     );
