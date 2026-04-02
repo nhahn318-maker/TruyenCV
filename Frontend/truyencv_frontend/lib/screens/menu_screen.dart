@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import 'login_screen.dart';
+import 'reading_history_screen.dart';
+import 'bookmark_screen.dart';
 import 'main_screen.dart';
+import 'profile_screen.dart';
+import 'followed_stories_screen.dart';
+import 'followed_authors_screen.dart';
 
 class MenuScreen extends StatefulWidget {
   const MenuScreen({super.key});
@@ -13,9 +18,37 @@ class MenuScreen extends StatefulWidget {
 class _MenuScreenState extends State<MenuScreen> {
   final AuthService _authService = AuthService();
 
+  @override
+  void initState() {
+    super.initState();
+    // Đảm bảo AuthService đã được khởi tạo
+    _authService.initialize();
+  }
+
   bool get _isLoggedIn {
     final token = _authService.token;
     return token != null && token.isNotEmpty;
+  }
+
+  String get _displayName {
+    if (!_isLoggedIn) {
+      return 'Đăng nhập / Đăng ký';
+    }
+    // Ưu tiên hiển thị fullName, nếu không có thì dùng userName
+    return _authService.fullName?.isNotEmpty == true
+        ? _authService.fullName!
+        : (_authService.userName?.isNotEmpty == true
+            ? _authService.userName!
+            : 'Người dùng');
+  }
+
+  String get _displaySubtitle {
+    if (!_isLoggedIn) {
+      return 'Nhấn để đăng nhập';
+    }
+    return _authService.email?.isNotEmpty == true
+        ? _authService.email!
+        : 'TYT - Truyện Online, Offline';
   }
 
   Future<void> _logout() async {
@@ -86,7 +119,12 @@ class _MenuScreenState extends State<MenuScreen> {
               iconColor: Colors.blue,
               title: 'Truyện đã xem',
               onTap: () {
-                _showComingSoonSnackBar();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ReadingHistoryScreen(),
+                  ),
+                );
               },
             ),
             _buildMenuItem(
@@ -94,7 +132,12 @@ class _MenuScreenState extends State<MenuScreen> {
               iconColor: Colors.red,
               title: 'Truyện đã thích',
               onTap: () {
-                _showComingSoonSnackBar();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const BookmarkScreen(),
+                  ),
+                );
               },
             ),
             _buildMenuItem(
@@ -110,7 +153,12 @@ class _MenuScreenState extends State<MenuScreen> {
               iconColor: Colors.orange,
               title: 'Truyện đã theo dõi',
               onTap: () {
-                _showComingSoonSnackBar();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const FollowedStoriesScreen(),
+                  ),
+                );
               },
             ),
             _buildMenuItem(
@@ -118,7 +166,12 @@ class _MenuScreenState extends State<MenuScreen> {
               iconColor: Colors.purple,
               title: 'Người đang theo dõi',
               onTap: () {
-                _showComingSoonSnackBar();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const FollowedAuthorsScreen(),
+                  ),
+                );
               },
             ),
             const SizedBox(height: 20),
@@ -171,6 +224,16 @@ class _MenuScreenState extends State<MenuScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const LoginScreen()),
+          ).then((_) async {
+            // Khởi tạo lại AuthService để tải thông tin người dùng mới
+            await _authService.initialize();
+            setState(() {});
+          });
+        } else {
+          // Nếu đã đăng nhập, chuyển đến màn hình profile
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const ProfileScreen()),
           ).then((_) {
             setState(() {});
           });
@@ -222,7 +285,7 @@ class _MenuScreenState extends State<MenuScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _isLoggedIn ? 'Người dùng' : 'Đăng nhập / Đăng ký',
+                    _displayName,
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -231,9 +294,7 @@ class _MenuScreenState extends State<MenuScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _isLoggedIn
-                        ? 'TYT - Truyện Online, Offline'
-                        : 'Nhấn để đăng nhập',
+                    _displaySubtitle,
                     style: TextStyle(
                       fontSize: 14,
                       color: Colors.grey.shade600,

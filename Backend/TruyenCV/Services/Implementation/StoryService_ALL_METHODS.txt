@@ -1,0 +1,80 @@
+// Add these methods to StoryService.cs
+
+// First, update constructor to inject IAuthorRepository:
+private readonly IAuthorRepository _authorRepo;
+
+public StoryService(IStoryRepository repo, IAuthorRepository authorRepo)
+{
+    _repo = repo;
+    _authorRepo = authorRepo;
+}
+
+// Then add these methods at the end of the class:
+
+// ----- User Story Creation -----
+public async Task<StoryDTO> CreateAsUserAsync(string userId, StoryCreateDTO dto)
+{
+    var author = await _authorRepo.GetByApplicationUserIdAsync(userId);
+    
+    if (author is null)
+        throw new UnauthorizedAccessException("Bạn chưa đăng ký làm tác giả.");
+    
+    if (author.Status != "Approved")
+        throw new UnauthorizedAccessException("Bạn chưa được phê duyệt làm tác giả.");
+    
+    dto.AuthorId = author.AuthorId;
+    return await CreateAsync(dto);
+}
+
+// ----- Top Stories -----
+public async Task<List<StoryTopDTO>> GetTopWeeklyAsync(int limit = 10)
+{
+    var topStoryIds = await _repo.GetTopStoriesByWeekAsync(limit);
+    return await BuildTopStoriesDTOs(topStoryIds);
+}
+
+public async Task<List<StoryTopDTO>> GetTopMonthlyAsync(int limit = 10)
+{
+    var topStoryIds = await _repo.GetTopStoriesByMonthAsync(limit);
+    return await BuildTopStoriesDTOs(topStoryIds);
+}
+
+public async Task<List<StoryTopDTO>> GetTopAllTimeAsync(int limit = 10)
+{
+    var topStoryIds = await _repo.GetTopAllTimeAsync(limit);
+    return await BuildTopStoriesDTOs(topStoryIds);
+}
+
+private async Task<List<StoryTopDTO>> BuildTopStoriesDTOs(List<(int StoryId, int ReadCount)> topStories)
+{
+    if (topStories.Count == 0)
+        return new List<StoryTopDTO>();
+
+    var storyIds = topStories.Select(x => x.StoryId).ToList();
+    
+    var stories = await _repo.GetAllAsync();
+    var storiesDict = stories
+        .Where(s => storyIds.Contains(s.StoryId))
+        .ToDictionary(s => s.StoryId);
+
+    var result = new List<StoryTopDTO>();
+    
+    foreach (var (storyId, readCount) in topStories)
+    {
+        if (!storiesDict.TryGetValue(storyId, out var story))
+            continue;
+
+        result.Add(new StoryTopDTO
+        {
+            StoryId = story.StoryId,
+            Title = story.Title,
+            CoverImage = story.CoverImage,
+            AuthorName = story.Author?.DisplayName ?? "Unknown",
+            ReadCount = readCount,
+            TotalChapters = story.Chapters?.Count ?? 0,
+            Status = story.Status
+        });
+    }
+
+    return result;
+}

@@ -3,8 +3,12 @@ import '../models/story.dart';
 import '../models/author.dart';
 import '../services/story_service.dart';
 import '../services/author_service.dart';
+import '../services/auth_service.dart';
 import 'story_form_screen.dart';
 import 'author_form_screen.dart';
+import 'pending_authors_screen.dart';
+import 'chapters_list_screen.dart';
+import 'genre_management_screen.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -29,9 +33,38 @@ class _AdminScreenState extends State<AdminScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _checkAccess();
+    _tabController = TabController(length: 4, vsync: this);
+    _initializeServices();
     _loadStories();
     _loadAuthors();
+  }
+
+  void _checkAccess() {
+    final authService = AuthService();
+    if (!authService.isAdmin) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Kiểm tra lại mounted trước khi pop
+        if (mounted) {
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bạn không có quyền truy cập trang này'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      });
+    }
+  }
+
+  void _initializeServices() {
+    // Set token cho các service từ AuthService
+    final authService = AuthService();
+    if (authService.token != null) {
+      _storyService.setToken(authService.token);
+      _authorService.setToken(authService.token);
+    }
   }
 
   @override
@@ -45,6 +78,12 @@ class _AdminScreenState extends State<AdminScreen>
       _isLoadingStories = true;
       _errorStories = null;
     });
+
+    // Đảm bảo token được set
+    final authService = AuthService();
+    if (authService.token != null) {
+      _storyService.setToken(authService.token);
+    }
 
     final response = await _storyService.getAllStories();
 
@@ -64,6 +103,12 @@ class _AdminScreenState extends State<AdminScreen>
       _isLoadingAuthors = true;
       _errorAuthors = null;
     });
+
+    // Đảm bảo token được set
+    final authService = AuthService();
+    if (authService.token != null) {
+      _authorService.setToken(authService.token);
+    }
 
     final response = await _authorService.getAllAuthors();
 
@@ -145,6 +190,12 @@ class _AdminScreenState extends State<AdminScreen>
     );
 
     if (confirm == true) {
+      // Đảm bảo token được set trước khi xóa
+      final authService = AuthService();
+      if (authService.token != null) {
+        _authorService.setToken(authService.token);
+      }
+
       final response = await _authorService.deleteAuthor(authorId);
 
       if (mounted) {
@@ -186,12 +237,19 @@ class _AdminScreenState extends State<AdminScreen>
           tabs: const [
             Tab(icon: Icon(Icons.book), text: 'Truyện'),
             Tab(icon: Icon(Icons.person), text: 'Tác giả'),
+            Tab(icon: Icon(Icons.verified_user), text: 'Duyệt tác giả'),
+            Tab(icon: Icon(Icons.category), text: 'Thể loại'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [_buildStoriesTab(), _buildAuthorsTab()],
+        children: [
+          _buildStoriesTab(),
+          _buildAuthorsTab(),
+          _buildPendingAuthorsTab(),
+          const GenreManagementScreen(),
+        ],
       ),
     );
   }
@@ -293,10 +351,25 @@ class _AdminScreenState extends State<AdminScreen>
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
+      child: InkWell(
+        onTap: () {
+          // Khi click vào card truyện, mở danh sách chapters với quyền edit
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ChaptersListScreen(
+                storyId: story.storyId,
+                storyTitle: story.title,
+                canEdit: true, // Admin luôn có quyền edit
+              ),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
             // Cover image
             if (story.coverImage != null && story.coverImage!.isNotEmpty)
               Container(
@@ -371,8 +444,36 @@ class _AdminScreenState extends State<AdminScreen>
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Button thêm/quản lý chương - rõ ràng hơn
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ChaptersListScreen(
+                          storyId: story.storyId,
+                          storyTitle: story.title,
+                          canEdit: true, // Admin luôn có quyền edit
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.menu_book, size: 18),
+                  label: const Text(
+                    'Chương',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    minimumSize: const Size(0, 36),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 IconButton(
                   icon: const Icon(Icons.edit, color: Colors.blue),
+                  tooltip: 'Sửa truyện',
                   onPressed: () async {
                     final result = await Navigator.push(
                       context,
@@ -389,11 +490,13 @@ class _AdminScreenState extends State<AdminScreen>
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete, color: Colors.red),
+                  tooltip: 'Xóa truyện',
                   onPressed: () => _deleteStory(story.storyId, story.title),
                 ),
               ],
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -589,6 +692,10 @@ class _AdminScreenState extends State<AdminScreen>
       default:
         return Colors.grey;
     }
+  }
+
+  Widget _buildPendingAuthorsTab() {
+    return const PendingAuthorsScreen();
   }
 
   String _formatDate(DateTime date) {

@@ -6,11 +6,14 @@ import '../services/bookmark_service.dart';
 import '../services/auth_service.dart';
 import '../services/rating_service.dart';
 import '../services/comment_service.dart';
+import '../services/follow_story_service.dart';
 import '../models/bookmark.dart';
 import '../models/rating.dart';
 import '../models/comment.dart';
+import '../models/api_response.dart';
 import 'home_screen.dart';
 import 'chapters_list_screen.dart';
+import 'author_detail_screen.dart';
 
 class StoryDetailScreen extends StatefulWidget {
   final int storyId;
@@ -27,6 +30,7 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
   final BookmarkService _bookmarkService = BookmarkService();
   final RatingService _ratingService = RatingService();
   final CommentService _commentService = CommentService();
+  final FollowStoryService _followStoryService = FollowStoryService();
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _commentController = TextEditingController();
   Story? _story;
@@ -35,13 +39,19 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
   String? _errorMessage;
   bool _isBookmarked = false;
   bool _isBookmarking = false;
+  bool _isFollowing = false;
+  bool _isFollowActionInProgress = false;
   RatingSummary? _ratingSummary;
+  Rating? _myRating;
+  bool _isSubmittingRating = false;
+  int? _selectedRating;
   List<Comment> _comments = [];
   bool _isLoadingComments = false;
   bool _isLoadingRating = false;
   int _commentPage = 1;
   final int _commentPageSize = 10;
   int _totalComments = 0;
+  bool _isDescriptionExpanded = false; // Trạng thái mở rộng mô tả
 
   @override
   void initState() {
@@ -52,6 +62,7 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
       _bookmarkService.setToken(authService.token);
       _ratingService.setToken(authService.token);
       _commentService.setToken(authService.token);
+      _followStoryService.setToken(authService.token);
     }
     _loadStory();
   }
@@ -96,15 +107,136 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
       _isLoadingRating = true;
     });
 
-    final response = await _ratingService.getRatingSummary(widget.storyId);
+    try {
+      final response = await _ratingService.getRatingSummary(widget.storyId);
 
-    if (mounted) {
-      setState(() {
-        _isLoadingRating = false;
-        if (response.status && response.data != null) {
-          _ratingSummary = response.data;
+      if (mounted) {
+        setState(() {
+          _isLoadingRating = false;
+          if (response.status && response.data != null) {
+            _ratingSummary = response.data;
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingRating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadMyRating() async {
+    final authService = AuthService();
+    if (authService.token == null) {
+      return; // Không load nếu chưa đăng nhập
+    }
+
+    try {
+      final response = await _ratingService.getMyRating(widget.storyId);
+
+      if (mounted) {
+        setState(() {
+          if (response.status && response.data != null) {
+            _myRating = response.data;
+            _selectedRating = response.data!.score;
+          } else {
+            _myRating = null;
+            _selectedRating = null;
+          }
+        });
+      }
+    } catch (e) {
+      // Xử lý lỗi im lặng
+      if (mounted) {
+        setState(() {
+          _myRating = null;
+          _selectedRating = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _submitRating() async {
+    if (_selectedRating == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vui lòng chọn số sao đánh giá'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final authService = AuthService();
+    if (authService.token == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vui lòng đăng nhập để đánh giá'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isSubmittingRating = true;
+    });
+
+    try {
+      ApiResponse response;
+      if (_myRating != null) {
+        // Cập nhật rating đã có
+        response = await _ratingService.updateRating(
+          _myRating!.ratingId,
+          RatingUpdateDTO(score: _selectedRating!),
+        );
+      } else {
+        // Tạo rating mới
+        response = await _ratingService.createRating(
+          RatingCreateDTO(
+            storyId: widget.storyId,
+            score: _selectedRating!,
+          ),
+        );
+      }
+
+      if (mounted) {
+        if (response.status) {
+          // Reload rating của user và summary
+          await _loadMyRating();
+          await _loadRatingSummary();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Đánh giá thành công'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(response.message),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
-      });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmittingRating = false;
+        });
+      }
     }
   }
 
@@ -228,7 +360,9 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
       });
       _loadAuthorName(story.authorId);
       _checkBookmarkStatus();
+      _checkFollowStatus();
       _loadRatingSummary();
+      _loadMyRating();
       _loadComments();
     } else {
       setState(() {
@@ -244,6 +378,101 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
       setState(() {
         _authorName = response.data!.displayName;
       });
+    }
+  }
+
+  Future<void> _checkFollowStatus() async {
+    if (_story == null) return;
+
+    final authService = AuthService();
+    if (authService.token == null) {
+      setState(() {
+        _isFollowing = false;
+      });
+      return;
+    }
+
+    final response = await _followStoryService.checkFollowing(widget.storyId);
+
+    if (mounted) {
+      setState(() {
+        _isFollowing = response.data ?? false;
+      });
+    }
+  }
+
+   Future<void> _toggleFollow() async {
+    final authService = AuthService();
+    if (authService.token == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vui lòng đăng nhập để theo dõi truyện'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isFollowActionInProgress = true;
+    });
+
+    try {
+      if (_isFollowing) {
+        final response = await _followStoryService.unfollowStory(widget.storyId);
+        if (response.status) {
+          setState(() {
+            _isFollowing = false;
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Đã bỏ theo dõi truyện'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(response.message),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      } else {
+        final response = await _followStoryService.followStory(widget.storyId);
+        if (response.status) {
+          setState(() {
+            _isFollowing = true;
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Đã theo dõi truyện'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(response.message),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isFollowActionInProgress = false;
+        });
+      }
     }
   }
 
@@ -568,12 +797,89 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
                                 tooltip:
                                     _isBookmarked ? 'Bỏ lưu' : 'Lưu truyện',
                               ),
+                              const SizedBox(width: 8),
+                              // Nút Follow
+                              IconButton(
+                                icon:
+                                    _isFollowActionInProgress
+                                        ? const SizedBox(
+                                          width: 24,
+                                          height: 24,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                        : Icon(
+                                          _isFollowing
+                                              ? Icons.notifications_active
+                                              : Icons.notifications_none,
+                                        ),
+                                onPressed:
+                                    _isFollowActionInProgress
+                                        ? null
+                                        : _toggleFollow,
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.orange.shade50,
+                                  padding: const EdgeInsets.all(16),
+                                ),
+                                tooltip:
+                                    _isFollowing ? 'Bỏ theo dõi' : 'Theo dõi',
+                              ),
                             ],
                           ),
                           const SizedBox(height: 24),
-                          _buildDetailRow(
-                            'Tác giả',
-                            _authorName ?? 'ID: ${_story!.authorId}',
+                          // Tác giả (clickable)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Tác giả',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                InkWell(
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => AuthorDetailScreen(
+                                          authorId: _story!.authorId,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 4),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            _authorName ?? 'ID: ${_story!.authorId}',
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                              color: Colors.blue,
+                                              decoration: TextDecoration.underline,
+                                            ),
+                                          ),
+                                        ),
+                                        const Icon(
+                                          Icons.arrow_forward_ios,
+                                          size: 16,
+                                          color: Colors.blue,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const Divider(),
+                              ],
+                            ),
                           ),
                           _buildDetailRow(
                             'Trạng thái',
@@ -585,7 +891,7 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
                           ),
                           if (_story!.description != null &&
                               _story!.description!.isNotEmpty)
-                            _buildDetailRow('Mô tả', _story!.description!),
+                            _buildDescriptionRow(_story!.description!),
                           _buildDetailRow(
                             'Ngày tạo',
                             _formatDate(_story!.createdAt),
@@ -631,7 +937,81 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
     );
   }
 
+  Widget _buildDescriptionRow(String description) {
+    // Kiểm tra xem mô tả có dài không (ước tính khoảng 150 ký tự = 3-4 dòng)
+    final isLongDescription = description.length > 150;
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Mô tả',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          // Hiển thị mô tả với khả năng mở rộng/thu gọn
+          isLongDescription
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _isDescriptionExpanded
+                          ? description
+                          : '${description.substring(0, 150)}...',
+                      style: const TextStyle(fontSize: 16),
+                      textAlign: TextAlign.justify,
+                    ),
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _isDescriptionExpanded = !_isDescriptionExpanded;
+                        });
+                      },
+                      child: Row(
+                        children: [
+                          Text(
+                            _isDescriptionExpanded ? 'Thu gọn' : 'Xem thêm',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.purple,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            _isDescriptionExpanded
+                                ? Icons.expand_less
+                                : Icons.expand_more,
+                            color: Colors.purple,
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              : Text(
+                  description,
+                  style: const TextStyle(fontSize: 16),
+                  textAlign: TextAlign.justify,
+                ),
+          const Divider(),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRatingSection() {
+    final authService = AuthService();
+    final isLoggedIn = authService.token != null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -669,6 +1049,67 @@ class _StoryDetailScreenState extends State<StoryDetailScreen> {
           )
         else
           const Text('Chưa có đánh giá', style: TextStyle(color: Colors.grey)),
+        const SizedBox(height: 16),
+        // UI đánh giá của user
+        if (isLoggedIn) ...[
+          const Text(
+            'Đánh giá của bạn:',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: List.generate(5, (index) {
+              final starValue = index + 1;
+              final isSelected = _selectedRating != null && starValue <= _selectedRating!;
+              return GestureDetector(
+                onTap: _isSubmittingRating
+                    ? null
+                    : () {
+                        setState(() {
+                          _selectedRating = starValue;
+                        });
+                      },
+                child: Icon(
+                  isSelected ? Icons.star : Icons.star_border,
+                  color: isSelected ? Colors.amber : Colors.grey,
+                  size: 40,
+                ),
+              );
+            }),
+          ),
+          if (_myRating != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Bạn đã đánh giá ${_myRating!.score} sao',
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+              ),
+            ),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: _isSubmittingRating || _selectedRating == null
+                ? null
+                : _submitRating,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple,
+              foregroundColor: Colors.white,
+            ),
+            child: _isSubmittingRating
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Text('Gửi đánh giá'),
+          ),
+        ] else
+          Text(
+            'Đăng nhập để đánh giá truyện này',
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+          ),
       ],
     );
   }

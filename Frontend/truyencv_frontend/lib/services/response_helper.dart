@@ -45,7 +45,9 @@ class ResponseHelper {
       } else if (response.statusCode >= 500) {
         errorMessage = 'Lỗi server. Vui lòng thử lại sau.';
       } else if (response.statusCode == 401) {
-        errorMessage = 'Chưa đăng nhập hoặc phiên đăng nhập đã hết hạn.';
+        // Không hiển thị message tự động cho 401
+        // Để các screen tự quyết định có hiện thông báo hay không
+        errorMessage = '';
       } else if (response.statusCode == 403) {
         errorMessage = 'Bạn không có quyền thực hiện thao tác này.';
       } else if (response.statusCode == 404) {
